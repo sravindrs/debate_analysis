@@ -9,6 +9,10 @@ class TranscriptLoader:
 
     def __init__(self):
         self.supported_formats = ['json', 'txt', 'csv']
+        self.moderator = None
+
+    def set_moderator(self, moderator: str):
+        self.moderator = moderator.strip().upper()
 
     def load_transcript(self, file_path: str) -> pd.DataFrame:
         """
@@ -43,49 +47,70 @@ class TranscriptLoader:
 
     def _load_txt(self, file_path: str) -> pd.DataFrame:
         """
-        Loads debate transcript format where speaker segments are divided by two newlines.
-        Speaker name is identified before the first colon (':').
+        Loads debate transcript format handling both speaker changes and paragraph breaks.
+        Maintains debug output and structure from original implementation.
         """
         # Read entire content of the file
         with open(file_path, 'r') as file:
             content = file.read()
-            print(f"Raw content length: {len(content)} characters")  # Debug content size
+            print(f"Raw content length: {len(content)} characters")
 
-        # Split transcript into segments based on double newlines
-        segments = content.split('\n\n')  # Split by double newlines
-        print(f"Total segments: {len(segments)}")  # Debug segment count
+        # Split into lines first
+        lines = content.split('\n')
+        print(f"Total lines: {len(lines)}")
 
         # Prepare list to store structured data
         data = []
+        current_speaker = None
+        current_text = []
 
-        for segment in segments:
-            # Remove extra whitespace from segment
-            segment = segment.strip()
-            print(f"Processing segment: {segment[:50]}...")  # Debug segment preview
+        for line in lines:
+            line = line.strip()
+            print(f"Processing line: {line[:50]}...")  # Debug line preview
 
-            # Skip empty segments
-            if not segment:
+            # Handle empty lines
+            if not line:
+                if current_text:  # If we have text, add paragraph break
+                    current_text.append('')
                 continue
 
-            # Extract speaker and text
-            if ':' in segment:  # Ensure colon exists
-                speaker, text = segment.split(':', 1)  # Split at the first colon
-                speaker = speaker.strip()  # Clean speaker name
-                text = text.strip()  # Clean text content
+            # Check for new speaker (looking for CAPS followed by colon)
+            if ':' in line and (line.split(':')[0].isupper() or 'SPEAKER' in line.split(':')[0]):
+                # Save previous speaker's content if exists
+                if current_speaker and current_text:
+                    full_text = '\n'.join(current_text).strip()
+                    data.append({
+                        "speaker": current_speaker,
+                        "text": full_text,
+                        "start_time": None,
+                        "end_time": None
+                    })
+                    print(f"Saved segment for {current_speaker}: {full_text[:50]}...")
 
-                # Append structured data
-                data.append({
-                    "speaker": speaker,
-                    "text": text,
-                    "start_time": None,
-                    "end_time": None
-                })
-                print(f"Processed: {speaker}: {text[:50]}...")  # Debug processed entry
+                # Start new speaker
+                current_speaker, text = line.split(':', 1)
+                current_speaker = current_speaker.strip()
+                current_text = [text.strip()]
+                print(f"New speaker detected: {current_speaker}")
             else:
-                # Handle non-speaker blocks if necessary (optional)
-                print(f"Skipped non-speaker block: {segment[:50]}...")
+                # Continue with current speaker
+                if current_speaker:
+                    current_text.append(line)
+                else:
+                    print(f"Warning: Found text without speaker: {line}")
 
-        # Convert structured data to a DataFrame
+        # Don't forget the last segment
+        if current_speaker and current_text:
+            full_text = '\n'.join(current_text).strip()
+            data.append({
+                "speaker": current_speaker,
+                "text": full_text,
+                "start_time": None,
+                "end_time": None
+            })
+            print(f"Saved final segment for {current_speaker}: {full_text[:50]}...")
+
+        # Convert to DataFrame
         df = pd.DataFrame(data)
         print(f"Final DataFrame shape: {df.shape}")  # Debug final DataFrame size
         return df
